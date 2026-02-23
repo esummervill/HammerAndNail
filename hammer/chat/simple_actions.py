@@ -17,12 +17,12 @@ class DirectoryAction:
         return "\n".join(
             [
                 f"diff --git a/{file_path} b/{file_path}",
-                f"new file mode 100644",
-                f"index 0000000..e69de29",
-                f"--- /dev/null",
+                "new file mode 100644",
+                "index 0000000..e69de29",
+                "--- /dev/null",
                 f"+++ b/{file_path}",
-                f"@@ -0,0 +1 @@",
-                f"+# placeholder created by Hammer sandbox intent",
+                "@@ -0,0 +1 @@",
+                "+# placeholder created by Hammer sandbox intent",
                 "",
             ]
         )
@@ -33,15 +33,14 @@ def detect_directory_action(goal: str) -> DirectoryAction | None:
     if not goal:
         return None
     patterns = [
-        r"name it (?P<name>[A-Za-z0-9_\-./]+)",
-        r"create (?:a )?directory(?: called| named)? (?P<name>[A-Za-z0-9_\-./]+)",
-        r"make (?:a )?directory (?P<name>[A-Za-z0-9_\-./]+)",
-        r"build (?:a )?directory (?P<name>[A-Za-z0-9_\-./]+)",
-        r"create (?:a )?folder(?: called| named)? (?P<name>[A-Za-z0-9_\-./]+)",
+        r"name it (?P<name>[A-Za-z0-9_.\-\/]+)",
+        r"create (?:a )?directory(?: called| named)? (?P<name>[A-Za-z0-9_.\-\/]+)",
+        r"make (?:a )?directory(?: called| named)? (?P<name>[A-Za-z0-9_.\-\/]+)",
+        r"build (?:a )?directory(?: called| named)? (?P<name>[A-Za-z0-9_.\-\/]+)",
+        r"create (?:a )?folder(?: called| named)? (?P<name>[A-Za-z0-9_.\-\/]+)",
     ]
     for pattern in patterns:
         match = re.search(pattern, goal, re.IGNORECASE)
         if match:
-            name = match.group("name")
-            return DirectoryAction(name)
+            return DirectoryAction(match.group("name"))
     return None
