@@ -18,10 +18,13 @@ from .branch_manager import create_engineer_branch
 from .diff_manager import DiffValidationError, extract_diff
 from .state import PatchRecord, RunState, TestResult, new_run_id, save_state
 from .validator import PatchValidationError, validate_patch
-from ..llm.model_router import get_provider
+from ..llm.model_router import DEFAULT_PROVIDER, get_provider
 from ..tools.registry import ToolRegistry
 
 logger = logging.getLogger("hammer.core.loop")
+
+FORBIDDEN_PREFIXES = (".venv/", ".hammer/", ".pytest_cache/", "__pycache__/")
+FORBIDDEN_SUFFIXES = (".pyc", ".egg-info")
 
 
 class StabilityReason(str, Enum):
@@ -46,18 +49,19 @@ class LoopConfig:
     repo: Path
     directive: str
     model: str
+    provider: str = DEFAULT_PROVIDER
     max_iterations: int = 10
     test_command: str = "pytest"
     max_diff_lines: int = 500
     temperature: float = 0.2
-    max_tokens: int = 4096
+    max_tokens: int = 8192
 
 
 def run_loop(config: LoopConfig) -> LoopResult:
     """Execute the 7-phase pipeline loop against the target repo."""
     run_id = new_run_id()
     runs_dir = config.repo / ".hammer" / "runs"
-    provider = get_provider()
+    provider = get_provider(config.provider)
     registry = ToolRegistry()
 
     # Phase 0: Branch Safety
@@ -186,7 +190,66 @@ def _build_prompt(config: LoopConfig, state: RunState, registry: ToolRegistry) -
     return "\n".join(sections)
 
 
+def _extract_modified_files(diff_text: str) -> list[str]:
+    files: set[str] = set()
+    for line in diff_text.splitlines():
+        if line.startswith("+++ b/") or line.startswith("--- a/"):
+            raw_path = line[6:].split("\t", 1)[0]
+            if not raw_path or raw_path == "/dev/null":
+                continue
+
+            if raw_path.startswith(("a/", "b/")):
+                raw_path = raw_path[2:]
+            normalized = raw_path.lstrip("./")
+            if normalized:
+                files.add(normalized)
+    return sorted(files)
+
+
+def _assert_safe_file(path: str) -> None:
+    normalized = path.replace("\\", "/").lstrip("./")
+    for prefix in FORBIDDEN_PREFIXES:
+        if normalized.startswith(prefix):
+            raise RuntimeError(f"Unsafe file staging detected: {path}")
+    for suffix in FORBIDDEN_SUFFIXES:
+        if normalized.endswith(suffix):
+            raise RuntimeError(f"Unsafe file staging detected: {path}")
+
+
+def _parse_status_paths(status_output: str) -> set[str]:
+    paths: set[str] = set()
+    for line in status_output.splitlines():
+        if not line:
+            continue
+        candidate = line[3:].strip()
+        if "->" in candidate:
+            candidate = candidate.split("->", 1)[1].strip()
+        paths.add(candidate)
+    return paths
+
+
+def _validate_staged_files(repo: Path, expected_files: list[str]) -> None:
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    entries = [line for line in result.stdout.splitlines() if line.strip()]
+    if len(entries) > len(expected_files):
+        raise RuntimeError("Unexpected additional files staged before commit.")
+    staged_paths = _parse_status_paths(result.stdout)
+    unexpected = staged_paths - set(expected_files)
+    if unexpected:
+        raise RuntimeError(f"Unsafe file staging detected: {sorted(unexpected)}")
+
+
 def _apply_patch(diff_text: str, repo: Path, iteration: int) -> str:
+    modified_files = _extract_modified_files(diff_text)
+    if not modified_files:
+        raise RuntimeError("Patch did not modify any files.")
+
     with tempfile.NamedTemporaryFile(mode="w", suffix=".patch", delete=False) as tmp:
         tmp.write(diff_text)
         patch_path = Path(tmp.name)
@@ -194,15 +257,42 @@ def _apply_patch(diff_text: str, repo: Path, iteration: int) -> str:
     try:
         subprocess.run(
             ["git", "apply", str(patch_path)],
-            cwd=repo, check=True, capture_output=True, text=True, timeout=15
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
+
+        for file in modified_files:
+            _assert_safe_file(file)
+            subprocess.run(
+                ["git", "add", "--", file],
+                cwd=repo,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+
+        _validate_staged_files(repo, modified_files)
+
         subprocess.run(
-            ["git", "commit", "-am", f"hammer: iteration {iteration}"],
-            cwd=repo, capture_output=True, text=True, timeout=15
+            ["git", "commit", "-m", f"hammer: iteration {iteration}"],
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
+
         sha_result = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
-            cwd=repo, capture_output=True, text=True, timeout=5
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
         )
         return sha_result.stdout.strip()
     finally:
