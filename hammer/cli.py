@@ -78,15 +78,14 @@ def main(ctx, model, provider, max_iterations, test_command, max_diff_lines):
         repo_path = Path.cwd()
         ensure_repo_env(repo_path)
         ensure_ollama_access(model, provider)
-        session = InteractiveGuidedSession(
+        InteractiveGuidedSession(
             repo_path,
             model=model,
             provider=provider,
             max_iterations=max_iterations,
             test_command=test_command,
             max_diff_lines=max_diff_lines,
-        )
-        session.run()
+        ).run()
 
 
 @main.command()

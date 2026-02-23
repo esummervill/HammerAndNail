@@ -64,6 +64,7 @@ class InteractiveGuidedSession:
                     self.test_command,
                     self.max_diff_lines,
                     initial_diff=initial_diff,
+                    stop_after_initial_diff=bool(initial_diff),
                 )
                 break
 

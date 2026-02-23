@@ -73,13 +73,13 @@ The experience prints:
 Hammer Engineer Ready.
 Repository detected: <name>
 Model: qwen3-coder:30b
-Mode: Guided
-What would you like to build or improve?
+Mode: Conversational Plan
+Describe what you want to build, review the plan, and confirm execution.
 ```
 
 Hammer now opens a single conversational plan builder: state your goal, optionally add constraints, review the AI-proposed steps, and simply confirm (`y`) when you’re ready to execute or decline (`n`) to iterate again. The plan history is persisted inside `.hammer/session.json`, so the conversation keeps context between runs.
 
-For trivial sandbox requests like “create a directory named Sandbox,” Hammer detects the intent, injects a generated diff (adding `Sandbox/.gitkeep`), and supplies that patch directly to the loop before invoking the LLM. That makes sandbox-level work repeatable without needing you to manually produce diffs.
+For trivial sandbox requests like “create a directory named Sandbox,” Hammer detects the intent, builds a diff for `Sandbox/.gitkeep` beforehand, and feeds that patch directly into the loop before invoking the LLM. That makes sandbox-level work repeatable without you manually producing diffs.
 
 ### One-command helper
 

@@ -56,6 +56,7 @@ class LoopConfig:
     temperature: float = 0.2
     max_tokens: int = 8192
     initial_diff: str | None = None
+    stop_after_initial_diff: bool = False
 
 
 def run_loop(config: LoopConfig) -> LoopResult:
@@ -78,7 +79,6 @@ def run_loop(config: LoopConfig) -> LoopResult:
     )
 
     seen_patch_hashes: set[str] = set()
-
     initial_diff_consumed = False
     for iteration in range(config.max_iterations):
         state.iteration = iteration
@@ -89,8 +89,8 @@ def run_loop(config: LoopConfig) -> LoopResult:
 
         # Phase 2: Generate
         if config.initial_diff and not initial_diff_consumed:
-            diff_source = "initial_diff"
             raw_response = config.initial_diff
+            diff_source = "initial_diff"
             initial_diff_consumed = True
         else:
             prompt = _build_prompt(config, state, registry)
@@ -155,6 +155,12 @@ def run_loop(config: LoopConfig) -> LoopResult:
             save_state(state, runs_dir)
             _write_pr_summary(state, runs_dir)
             return LoopResult(run_id, branch, iteration + 1, StabilityReason.TESTS_PASS, state)
+
+        if config.stop_after_initial_diff and initial_diff_consumed:
+            logger.info("Stopping after initial diff per configuration.")
+            state.failure_reason = "stopped_after_initial_diff"
+            _write_pr_summary(state, runs_dir)
+            return LoopResult(run_id, branch, iteration + 1, StabilityReason.ERROR, state)
 
     logger.info("Max iterations reached")
     _write_pr_summary(state, runs_dir)
