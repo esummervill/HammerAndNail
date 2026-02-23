@@ -11,7 +11,7 @@ from .session import ChatSession
 
 
 class InteractiveGuidedSession:
-    """Manages a guided chat loop and builds directives for the core engine."""
+    """Conversation-driven guided session that submits plans before running the loop."""
 
     def __init__(
         self,
@@ -32,36 +32,44 @@ class InteractiveGuidedSession:
 
     def run(self) -> None:
         self._print_header()
-        goal = self._prompt_goal()
-        self.session.add_message("user", goal)
-        constraints = self._prompt_constraints()
-        plan_text = self._build_plan(goal, constraints)
-        self.session.add_message("assistant", plan_text)
-        click.echo("\nPlan:")
-        click.secho(plan_text, fg="cyan")
-        if not click.confirm("Proceed with branch creation and execution?", default=True):
-            click.echo("Okay, adjust the goal or constraints and rerun `hammer` when ready.")
-            return
-        directive_text = self._build_directive(goal, constraints)
-        run_engineering_loop(
-            self.repo_path,
-            directive_text,
-            self.model,
-            self.provider,
-            self.max_iterations,
-            self.test_command,
-            self.max_diff_lines,
-        )
+        goal = ""
+        while True:
+            if not goal.strip():
+                goal = self._prompt_goal()
+            self.session.add_message("user", goal)
+
+            constraints = self._prompt_constraints()
+            plan_steps, plan_text = self._build_plan(goal, constraints)
+            self.session.add_message("assistant", plan_text)
+
+            click.echo("\nPlan:")
+            click.secho(plan_text, fg="cyan")
+
+            if click.confirm("Proceed with this plan and run the engineering loop?", default=True):
+                directive_text = build_directive(goal, constraints, plan_steps)
+                run_engineering_loop(
+                    self.repo_path,
+                    directive_text,
+                    self.model,
+                    self.provider,
+                    self.max_iterations,
+                    self.test_command,
+                    self.max_diff_lines,
+                )
+                break
+
+            click.echo("Plan declined. Let's refine it.")
+            goal = click.prompt("Refine the goal (leave empty to keep prior goal)", default="", show_default=False) or goal
 
     def _print_header(self) -> None:
         click.secho("Hammer Engineer Ready.", fg="green")
         click.echo(f"Repository detected: {self.repo_path.name}")
         click.echo(f"Model: {self.model}")
-        click.echo("Mode: Guided")
-        click.echo("What would you like to build or improve?")
+        click.echo("Mode: Conversational Plan")
+        click.echo("Describe what you want to build, review the plan, and confirm execution.")
 
     def _prompt_goal(self) -> str:
-        return click.prompt("Describe the goal", type=str)
+        return click.prompt("Goal", type=str)
 
     def _prompt_constraints(self) -> list[str]:
         constraints: list[str] = []
@@ -72,16 +80,14 @@ class InteractiveGuidedSession:
             constraints.append(constraint.strip())
         return constraints
 
-    def _build_directive(self, goal: str, constraints: list[str]) -> str:
-        return build_directive(goal, constraints)
-
-    def _build_plan(self, goal: str, constraints: list[str]) -> str:
+    def _build_plan(self, goal: str, constraints: list[str]) -> tuple[list[str], str]:
         structure = ", ".join(p.name for p in sorted(self.repo_path.iterdir()) if p.is_dir())
-        plan_lines = [
-            f"1. Review repository structure ({structure or 'no subdirectories'}) and existing state.",
-            f"2. Address goal: {goal.strip()}",
-            f"3. Respect constraints: {', '.join(constraints) if constraints else 'none specified'}.",
-            f"4. Run `{self.test_command}` after each patch and guard for regressions.",
-            "5. Commit work to EngineerExternal/<timestamp> and write PR_SUMMARY.md.",
+        steps = [
+            f"Review repository structure ({structure or 'no subdirectories'}) and current state.",
+            f"Address goal: {goal.strip()}.",
+            f"Respect constraints: {', '.join(constraints) if constraints else 'none specified'}.",
+            f"Run `{self.test_command}` after each patch to guard regressions.",
+            "Commit work to EngineerExternal/<timestamp> and produce PR_SUMMARY.md.",
         ]
-        return "\n".join(plan_lines)
+        plan_lines = "\n".join(f"{idx+1}. {step}" for idx, step in enumerate(steps))
+        return steps, plan_lines

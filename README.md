@@ -77,16 +77,7 @@ Mode: Guided
 What would you like to build or improve?
 ```
 
-When you start `hammer` you choose either the guided engineering session or the developer chat. The developer chat is a free-form conversation preserved under `.hammer/chat_session.json`, never mutates Git unless you explicitly run `/execute`, and runs the LLM with a larger token budget so it can reason longer without summary truncation. New chat commands include:
-
-```
-/plan           # summarize the current goal + constraints into a plan
-/constraint ... # add a constraint to the next plan
-/constraints    # list the recorded constraints
-/execute        # confirm and run the guided engineering loop with the latest plan
-```
-
-Use `/plan` after describing your goal, review the proposed steps, adjust constraints via `/constraint`, and when you say “yes” run `/execute` to transition directly into the guided mode with the generated directive. If you say “no” to the plan, keep chatting to refine the goal before rerunning `/plan`.
+Hammer now opens a single conversational flow: you describe the goal, optionally add constraints, review the proposed plan, and then press `y` or `n` when asked whether to proceed. If you decline, the session prompts you to refine the goal before generating a new plan; once you confirm, Hammer executes it via the zero-friction guided loop while keeping the plan history in `.hammer/session.json`.
 
 Describe what to build, add constraints when prompted, confirm the plan, and Hammer will create `EngineerExternal/<timestamp>`, drive the 7-phase loop, and write `PR_SUMMARY.md`. All context is persisted so restarting `hammer` resumes your conversation history.
 

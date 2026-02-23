@@ -16,7 +16,6 @@ from pathlib import Path
 import click
 
 from .bootstrap import ensure_ollama_access, ensure_repo_env
-from .chat.developer import DeveloperChatSession
 from .chat.interactive import InteractiveGuidedSession
 from .llm.model_router import DEFAULT_MODEL, DEFAULT_PROVIDER
 from .runner import run_engineering_loop
@@ -77,32 +76,17 @@ def main(ctx, model, provider, max_iterations, test_command, max_diff_lines):
     """
     if ctx.invoked_subcommand is None:
         repo_path = Path.cwd()
-        click.secho("Hammer Engineer Ready.", fg="green")
-        click.echo(f"Repository detected: {repo_path.name}")
-        click.echo(f"Model: {model}")
-        click.echo("Mode: Choose: [1] Guided Execution [2] Developer Chat")
-        mode = click.prompt(">", type=click.Choice(["1", "2"]), default="1")
-        if mode == "1":
-            ensure_repo_env(repo_path)
-            ensure_ollama_access(model, provider)
-            session = InteractiveGuidedSession(
-                repo_path,
-                model=model,
-                provider=provider,
-                max_iterations=max_iterations,
-                test_command=test_command,
-                max_diff_lines=max_diff_lines,
-            )
-            session.run()
-        else:
-            DeveloperChatSession(
-                repo_path,
-                model=model,
-                provider=provider,
-                max_iterations=max_iterations,
-                test_command=test_command,
-                max_diff_lines=max_diff_lines,
-            ).run()
+        ensure_repo_env(repo_path)
+        ensure_ollama_access(model, provider)
+        session = InteractiveGuidedSession(
+            repo_path,
+            model=model,
+            provider=provider,
+            max_iterations=max_iterations,
+            test_command=test_command,
+            max_diff_lines=max_diff_lines,
+        )
+        session.run()
 
 
 @main.command()
