@@ -22,13 +22,13 @@ DEFAULT_PROVIDER = "ollama"
 DEFAULT_MODEL = "qwen3-coder:30b"
 
 
-def get_provider() -> LLMProvider:
-    """Return a configured LLM provider based on HAMMER_PROVIDER env var."""
-    name = os.getenv("HAMMER_PROVIDER", DEFAULT_PROVIDER).lower()
-    cls = _PROVIDERS.get(name)
+def get_provider(name: str | None = None) -> LLMProvider:
+    """Return a configured LLM provider based on the requested name or the HAMMER_PROVIDER env var."""
+    request = (name or os.getenv("HAMMER_PROVIDER", DEFAULT_PROVIDER)).lower()
+    cls = _PROVIDERS.get(request)
     if cls is None:
         raise ValueError(
-            f"Unknown provider '{name}'. Available: {list(_PROVIDERS.keys())}"
+            f"Unknown provider '{request}'. Available: {list(_PROVIDERS.keys())}"
         )
     return cls()
 

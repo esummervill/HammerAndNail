@@ -51,6 +51,71 @@ hammer run \
   --directive directive.md
 ```
 
+### Zero-friction terminal mode
+
+After installing `hammernail` in editable mode (`pip install -e .`) and making the package entrypoint available on your `PATH`, typing `hammer` from anywhere performs all bootstrap steps automatically:
+
+1. Detects the current repository root and ensures `.venv` exists.
+2. Upgrades `pip`, `setuptools`, `wheel` and installs the local `hammer` package into `.venv`.
+3. Verifies Ollama is reachable and pulls `qwen3-coder:30b` (or your configured model) if it is missing.
+4. Launches an interactive guided session that keeps rolling context in `.hammer/session.json`, asks for your goal and constraints, proposes a plan, and requests confirmation before starting the deterministic loop.
+
+When the guided session runs, Hammer stages only the files touched by the generated patch, filters them through the forbidden prefixes/suffixes list, validates that `git status --porcelain` reported no extra entries, and refuses to commit when stray artifacts would otherwise be staged.
+
+```
+cd /path/to/target/repo
+hammer
+```
+
+The experience prints:
+
+```
+Hammer Engineer Ready.
+Repository detected: <name>
+Model: qwen3-coder:30b
+Mode: Guided
+What would you like to build or improve?
+```
+
+When you start `hammer` you choose either the guided engineering session or the developer chat. The developer chat is a free-form conversation preserved under `.hammer/chat_session.json`, never mutates Git unless you explicitly run `/execute`, and runs the LLM with a larger token budget so it can reason longer without summary truncation. New chat commands include:
+
+```
+/plan           # summarize the current goal + constraints into a plan
+/constraint ... # add a constraint to the next plan
+/constraints    # list the recorded constraints
+/execute        # confirm and run the guided engineering loop with the latest plan
+```
+
+Use `/plan` after describing your goal, review the proposed steps, adjust constraints via `/constraint`, and when you say “yes” run `/execute` to transition directly into the guided mode with the generated directive. If you say “no” to the plan, keep chatting to refine the goal before rerunning `/plan`.
+
+Describe what to build, add constraints when prompted, confirm the plan, and Hammer will create `EngineerExternal/<timestamp>`, drive the 7-phase loop, and write `PR_SUMMARY.md`. All context is persisted so restarting `hammer` resumes your conversation history.
+
+### One-command helper
+
+If you keep `HammerAndNail` checked out somewhere central, `scripts/hammer.sh` takes care of venv creation, installs the package in editable mode, and then proxies command arguments to `hammer`. Run it from any path and point it at the repository you want to work on:
+
+```bash
+cd /where/you/want/to/run
+/Users/ethansummervill/Projects/EngineerRuntime/scripts/hammer.sh \
+  --repo /path/to/target/repo \
+  --directive /path/to/directive.md
+```
+
+The helper silently upgrades `pip`, `setuptools`, and `wheel`, so rerunning it ensures the environment stays current without manual steps.
+
+On Windows you can invoke `hammer` directly (it resolves to `hammer.bat` in this repo root) after adding the checkout directory to your `PATH` or running the batch file from that directory. The batch file mirrors the same bootstrap steps—venv creation, editable install, and execution—so typing `hammer --repo ... --directive ...` is all that’s needed once the folder is on your command path.
+
+### Describe and run (interactive)
+
+If you prefer to tell Hammer what you need in plain English, run `scripts/hammer_prompt.sh`. It asks for a goal plus optional constraints, writes a temporary directive (printed to the console), and then launches `hammer run` for you.
+
+```bash
+/Users/ethansummervill/Projects/EngineerRuntime/scripts/hammer_prompt.sh \
+  --repo /path/to/target/repo
+```
+
+Any additional flags (e.g., `--run-id`) added after the helper are forwarded directly to `hammer run`. If you skip `--repo`, the script uses your current working directory.
+
 ---
 
 ## Configuration

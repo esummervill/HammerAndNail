@@ -1,7 +1,8 @@
 """HammerAndNail CLI entry point.
 
 Usage:
-    hammer run --repo /path/to/repo --directive directive.md
+    cd /your/repo && hammer              # zero-friction guided flow
+    hammer run                           # explicit run with directives
     hammer tools list
     hammer --version
 
@@ -10,14 +11,17 @@ Both `hammer` and `EngineerExternal` are registered as entry points.
 from __future__ import annotations
 
 import logging
-import sys
 from pathlib import Path
 
 import click
 
-from .core.loop import LoopConfig, StabilityReason, run_loop
+from .bootstrap import ensure_ollama_access, ensure_repo_env
+from .chat.developer import DeveloperChatSession
+from .chat.interactive import InteractiveGuidedSession
 from .llm.model_router import DEFAULT_MODEL, DEFAULT_PROVIDER
+from .runner import run_engineering_loop
 from .tools.registry import ToolRegistry
+from . import __version__
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,18 +29,85 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
-__version__ = "0.1.0"
+# Directive filenames checked in order in the repo root
+_DIRECTIVE_FILENAMES = ["directive.md", "DIRECTIVE.md", ".directive.md"]
 
 
-@click.group()
+def _find_directive(repo: Path) -> str | None:
+    """Return content of directive file if found in repo root, else None."""
+    for name in _DIRECTIVE_FILENAMES:
+        path = repo / name
+        if path.exists():
+            return path.read_text()
+    return None
+
+
+def _resolve_directive(repo_path: Path, directive_file: str | None) -> str:
+    """Resolve directive text from file, auto-detect, or interactive prompt."""
+    if directive_file:
+        return Path(directive_file).read_text()
+
+    found = _find_directive(repo_path)
+    if found:
+        click.echo(f"  Directive: directive.md")
+        return found
+
+    click.echo("No directive.md found in current directory.")
+    return click.prompt("What should the engineer do?")
+
+
+@click.group(invoke_without_command=True)
 @click.version_option(__version__, prog_name="hammer")
-def main():
-    """HammerAndNail — modular autonomous coding runtime."""
+@click.option("--model", default=DEFAULT_MODEL, envvar="HAMMER_MODEL", show_default=True, help="LLM model name")
+@click.option("--provider", default=DEFAULT_PROVIDER, envvar="HAMMER_PROVIDER", show_default=True, help="LLM provider (ollama)")
+@click.option("--max-iterations", default=10, show_default=True, help="Maximum loop iterations")
+@click.option("--test-command", default="pytest", show_default=True, help="Test command to run after each patch")
+@click.option("--max-diff-lines", default=500, show_default=True, help="Maximum lines in a single diff")
+@click.pass_context
+def main(ctx, model, provider, max_iterations, test_command, max_diff_lines):
+    """HammerAndNail — autonomous coding runtime.
+
+    \b
+    Run from inside any git repo:
+
+        cd /your/repo
+        hammer
+
+    Launches the Guided mode that performs the bootstrapping, interactive planning, and deterministic loop.
+    """
+    if ctx.invoked_subcommand is None:
+        repo_path = Path.cwd()
+        click.secho("Hammer Engineer Ready.", fg="green")
+        click.echo(f"Repository detected: {repo_path.name}")
+        click.echo(f"Model: {model}")
+        click.echo("Mode: Choose: [1] Guided Execution [2] Developer Chat")
+        mode = click.prompt(">", type=click.Choice(["1", "2"]), default="1")
+        if mode == "1":
+            ensure_repo_env(repo_path)
+            ensure_ollama_access(model, provider)
+            session = InteractiveGuidedSession(
+                repo_path,
+                model=model,
+                provider=provider,
+                max_iterations=max_iterations,
+                test_command=test_command,
+                max_diff_lines=max_diff_lines,
+            )
+            session.run()
+        else:
+            DeveloperChatSession(
+                repo_path,
+                model=model,
+                provider=provider,
+                max_iterations=max_iterations,
+                test_command=test_command,
+                max_diff_lines=max_diff_lines,
+            ).run()
 
 
 @main.command()
-@click.option("--repo", required=True, type=click.Path(exists=True, file_okay=False), help="Target repository path")
-@click.option("--directive", required=True, type=click.Path(exists=True, dir_okay=False), help="Directive markdown file")
+@click.option("--repo", default=None, type=click.Path(file_okay=False), help="Target repo path (default: cwd)")
+@click.option("--directive", default=None, type=click.Path(dir_okay=False), help="Directive file (default: directive.md or prompt)")
 @click.option("--model", default=DEFAULT_MODEL, envvar="HAMMER_MODEL", show_default=True, help="LLM model name")
 @click.option("--provider", default=DEFAULT_PROVIDER, envvar="HAMMER_PROVIDER", show_default=True, help="LLM provider (ollama)")
 @click.option("--max-iterations", default=10, show_default=True, help="Maximum loop iterations")
@@ -44,40 +115,19 @@ def main():
 @click.option("--max-diff-lines", default=500, show_default=True, help="Maximum lines in a single diff")
 def run(repo, directive, model, provider, max_iterations, test_command, max_diff_lines):
     """Run the engineering loop against a repository."""
-    repo_path = Path(repo).resolve()
-    directive_text = Path(directive).read_text()
-
-    click.echo(f"HammerAndNail v{__version__}")
-    click.echo(f"  Repo:      {repo_path}")
-    click.echo(f"  Model:     {model} via {provider}")
-    click.echo(f"  Max iter:  {max_iterations}")
-    click.echo(f"  Tests:     {test_command}")
-    click.echo("")
-
-    config = LoopConfig(
-        repo=repo_path,
-        directive=directive_text,
-        model=model,
-        max_iterations=max_iterations,
-        test_command=test_command,
-        max_diff_lines=max_diff_lines,
+    repo_path = Path(repo).resolve() if repo else Path.cwd()
+    ensure_repo_env(repo_path)
+    ensure_ollama_access(model, provider)
+    directive_text = _resolve_directive(repo_path, directive)
+    run_engineering_loop(
+        repo_path,
+        directive_text,
+        model,
+        provider,
+        max_iterations,
+        test_command,
+        max_diff_lines,
     )
-
-    result = run_loop(config)
-
-    click.echo("")
-    click.echo(f"Loop complete — {result.reason.value}")
-    click.echo(f"  Run ID:     {result.run_id}")
-    click.echo(f"  Branch:     {result.branch}")
-    click.echo(f"  Iterations: {result.iterations}")
-    click.echo(f"  Patches:    {len(result.state.patches)}")
-
-    if result.reason == StabilityReason.TESTS_PASS:
-        click.secho("  Status: STABLE — all tests pass", fg="green")
-        sys.exit(0)
-    else:
-        click.secho(f"  Status: UNSTABLE — {result.reason.value}", fg="yellow")
-        sys.exit(1)
 
 
 @main.group()

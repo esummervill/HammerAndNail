@@ -10,6 +10,7 @@ def _make_config(tmp_path: Path) -> LoopConfig:
         repo=tmp_path,
         directive="fix failing tests",
         model="test-model",
+        provider="ollama",
         max_iterations=3,
         test_command="pytest",
     )
