@@ -55,6 +55,7 @@ class LoopConfig:
     max_diff_lines: int = 500
     temperature: float = 0.2
     max_tokens: int = 8192
+    initial_diff: str | None = None
 
 
 def run_loop(config: LoopConfig) -> LoopResult:
@@ -78,6 +79,7 @@ def run_loop(config: LoopConfig) -> LoopResult:
 
     seen_patch_hashes: set[str] = set()
 
+    initial_diff_consumed = False
     for iteration in range(config.max_iterations):
         state.iteration = iteration
         logger.info("--- Iteration %d ---", iteration)
@@ -86,19 +88,25 @@ def run_loop(config: LoopConfig) -> LoopResult:
         save_state(state, runs_dir)
 
         # Phase 2: Generate
-        prompt = _build_prompt(config, state, registry)
-        raw_response = provider.generate(
-            prompt=prompt,
-            model=config.model,
-            max_tokens=config.max_tokens,
-            temperature=config.temperature,
-        )
+        if config.initial_diff and not initial_diff_consumed:
+            diff_source = "initial_diff"
+            raw_response = config.initial_diff
+            initial_diff_consumed = True
+        else:
+            prompt = _build_prompt(config, state, registry)
+            raw_response = provider.generate(
+                prompt=prompt,
+                model=config.model,
+                max_tokens=config.max_tokens,
+                temperature=config.temperature,
+            )
+            diff_source = "llm"
 
         # Phase 3: Extract Diff
         try:
             diff_text = extract_diff(raw_response, max_lines=config.max_diff_lines)
         except DiffValidationError as exc:
-            logger.info("No valid diff in response: %s", exc)
+            logger.info("No valid diff from %s: %s", diff_source, exc)
             state.stable = True
             state.failure_reason = str(exc)
             save_state(state, runs_dir)

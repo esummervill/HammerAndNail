@@ -77,9 +77,9 @@ Mode: Guided
 What would you like to build or improve?
 ```
 
-Hammer now opens a single conversational flow: you describe the goal, optionally add constraints, review the proposed plan, and then press `y` or `n` when asked whether to proceed. If you decline, the session prompts you to refine the goal before generating a new plan; once you confirm, Hammer executes it via the zero-friction guided loop while keeping the plan history in `.hammer/session.json`.
+Hammer now opens a single conversational plan builder: state your goal, optionally add constraints, review the AI-proposed steps, and simply confirm (`y`) when you’re ready to execute or decline (`n`) to iterate again. The plan history is persisted inside `.hammer/session.json`, so the conversation keeps context between runs.
 
-Describe what to build, add constraints when prompted, confirm the plan, and Hammer will create `EngineerExternal/<timestamp>`, drive the 7-phase loop, and write `PR_SUMMARY.md`. All context is persisted so restarting `hammer` resumes your conversation history.
+For trivial sandbox requests like “create a directory named Sandbox,” Hammer detects the intent, injects a generated diff (adding `Sandbox/.gitkeep`), and supplies that patch directly to the loop before invoking the LLM. That makes sandbox-level work repeatable without needing you to manually produce diffs.
 
 ### One-command helper
 

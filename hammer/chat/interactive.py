@@ -8,6 +8,7 @@ from ..llm.model_router import DEFAULT_MODEL, DEFAULT_PROVIDER
 from ..runner import run_engineering_loop
 from .directive import build_directive
 from .session import ChatSession
+from .simple_actions import detect_directory_action
 
 
 class InteractiveGuidedSession:
@@ -47,6 +48,13 @@ class InteractiveGuidedSession:
 
             if click.confirm("Proceed with this plan and run the engineering loop?", default=True):
                 directive_text = build_directive(goal, constraints, plan_steps)
+                initial_diff = None
+                action = detect_directory_action(goal)
+                if action:
+                    click.echo(
+                        f"Detected create-directory intent for '{action.path}'. Preparing patch ahead of the loop."
+                    )
+                    initial_diff = action.diff()
                 run_engineering_loop(
                     self.repo_path,
                     directive_text,
@@ -55,6 +63,7 @@ class InteractiveGuidedSession:
                     self.max_iterations,
                     self.test_command,
                     self.max_diff_lines,
+                    initial_diff=initial_diff,
                 )
                 break
 
