@@ -73,22 +73,13 @@ The experience prints:
 Hammer Engineer Ready.
 Repository detected: <name>
 Model: qwen3-coder:30b
-Mode: Guided
-What would you like to build or improve?
+Mode: Conversational Plan
+Describe what you want to build, review the plan, and confirm execution.
 ```
 
-When you start `hammer` you choose either the guided engineering session or the developer chat. The developer chat is a free-form conversation preserved under `.hammer/chat_session.json`, never mutates Git unless you explicitly run `/execute`, and runs the LLM with a larger token budget so it can reason longer without summary truncation. New chat commands include:
+Hammer now opens a single conversational plan builder: state your goal, optionally add constraints, review the AI-proposed steps, and simply confirm (`y`) when you’re ready to execute or decline (`n`) to iterate again. The plan history is persisted inside `.hammer/session.json`, so the conversation keeps context between runs.
 
-```
-/plan           # summarize the current goal + constraints into a plan
-/constraint ... # add a constraint to the next plan
-/constraints    # list the recorded constraints
-/execute        # confirm and run the guided engineering loop with the latest plan
-```
-
-Use `/plan` after describing your goal, review the proposed steps, adjust constraints via `/constraint`, and when you say “yes” run `/execute` to transition directly into the guided mode with the generated directive. If you say “no” to the plan, keep chatting to refine the goal before rerunning `/plan`.
-
-Describe what to build, add constraints when prompted, confirm the plan, and Hammer will create `EngineerExternal/<timestamp>`, drive the 7-phase loop, and write `PR_SUMMARY.md`. All context is persisted so restarting `hammer` resumes your conversation history.
+For trivial sandbox requests like “create a directory named Sandbox,” Hammer detects the intent, builds a diff for `Sandbox/.gitkeep` beforehand, and feeds that patch directly into the loop before invoking the LLM. That makes sandbox-level work repeatable without you manually producing diffs.
 
 ### One-command helper
 

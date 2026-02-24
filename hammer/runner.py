@@ -1,4 +1,4 @@
-"""Shared runner entrypoint used by both CLI modes."""
+"""Shared runner entrypoint used by the conversational plan and existing CLI."""
 from __future__ import annotations
 
 import sys
@@ -17,6 +17,8 @@ def run_engineering_loop(
     max_iterations: int,
     test_command: str,
     max_diff_lines: int,
+    initial_diff: str | None = None,
+    stop_after_initial_diff: bool = False,
 ) -> None:
     print(f"HammerAndNail v{__version__}")
     print(f"  Repo:      {repo_path}")
@@ -33,6 +35,8 @@ def run_engineering_loop(
         max_iterations=max_iterations,
         test_command=test_command,
         max_diff_lines=max_diff_lines,
+        initial_diff=initial_diff,
+        stop_after_initial_diff=stop_after_initial_diff,
     )
 
     result = run_loop(config)
