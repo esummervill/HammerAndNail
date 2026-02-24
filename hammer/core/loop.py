@@ -23,6 +23,15 @@ from ..tools.registry import ToolRegistry
 
 logger = logging.getLogger("hammer.core.loop")
 
+# Learning module: optional, lazy-loaded when enabled
+_STRATEGY_SCAFFOLDING = {
+    "minimal_patch": "Apply the smallest possible change. Do not refactor.",
+    "rewrite": "Consider a full rewrite if the current approach is inadequate.",
+    "add_tests_first": "Add or update tests before changing implementation.",
+    "refactor_only": "Refactor for clarity; do not change behavior.",
+    "static_analysis_first": "Analyze the code structure before suggesting changes.",
+}
+
 FORBIDDEN_PREFIXES = (".venv/", ".hammer/", ".pytest_cache/", "__pycache__/")
 FORBIDDEN_SUFFIXES = (".pyc", ".egg-info")
 
@@ -66,6 +75,42 @@ def run_loop(config: LoopConfig) -> LoopResult:
     provider = get_provider(config.provider)
     registry = ToolRegistry()
 
+    # Learning: load config (optional)
+    strategy_selector = None
+    experience_store = None
+    learning_enabled = False
+    learning_cfg: dict = {}
+    try:
+        from ..learning.config import load_learning_config
+
+        learning_cfg = load_learning_config(config.repo)
+        learning_enabled = learning_cfg.get("learning_enabled", False)
+    except Exception:
+        learning_enabled = False
+
+    if learning_enabled:
+        try:
+            from ..learning.experience_store import ExperienceStore
+            from ..learning.reward import RunResult, compute_reward
+            from ..learning.strategy_selector import StrategySelector
+
+            learning_dir = config.repo / ".hammer" / "learning"
+            strategy_selector = StrategySelector(
+                learning_dir,
+                epsilon=learning_cfg["epsilon"],
+                min_runs_before_bias=learning_cfg["min_runs_before_bias"],
+                seed=learning_cfg.get("seed"),
+            )
+            experience_store = ExperienceStore(
+                learning_dir, alpha=learning_cfg["alpha"]
+            )
+            logger.info("Learning enabled: strategy selection active")
+        except Exception as exc:
+            logger.warning("Learning module failed to load, continuing without: %s", exc)
+            strategy_selector = None
+            experience_store = None
+            learning_enabled = False
+
     # Phase 0: Branch Safety
     branch = create_engineer_branch(config.repo)
     logger.info("Run %s starting on branch %s", run_id, branch)
@@ -93,7 +138,17 @@ def run_loop(config: LoopConfig) -> LoopResult:
             diff_source = "initial_diff"
             initial_diff_consumed = True
         else:
-            prompt = _build_prompt(config, state, registry)
+            # Learning: select strategy before prompt (modifies scaffolding only)
+            selected_strategy = None
+            if strategy_selector:
+                try:
+                    from ..learning.state_encoder import encode_repo_state
+
+                    encoded_state = encode_repo_state(config.repo)
+                    selected_strategy = strategy_selector.select(encoded_state)
+                except Exception:
+                    pass
+            prompt = _build_prompt(config, state, registry, strategy=selected_strategy)
             raw_response = provider.generate(
                 prompt=prompt,
                 model=config.model,
@@ -146,6 +201,35 @@ def run_loop(config: LoopConfig) -> LoopResult:
         test_result = _run_tests(config, iteration)
         state.test_results.append(test_result)
 
+        # Learning: record reward and update strategy scores (after each iteration)
+        if experience_store and selected_strategy is not None:
+            try:
+                from ..learning.reward import RunResult, compute_reward
+
+                run_result = RunResult(
+                    tests_passed=test_result.passed,
+                    validation_passed=True,
+                    runtime_errors=0 if test_result.passed else 1,
+                    lint_errors=0,
+                    retries=iteration,
+                )
+                reward = compute_reward(run_result)
+                diff_size = state.patches[-1].lines_changed if state.patches else 0
+                repo_hash = hashlib.sha256(str(config.repo).encode()).hexdigest()[:16]
+                experience_store.record(
+                    run_id=run_id,
+                    strategy=selected_strategy.value,
+                    reward=reward,
+                    diff_size=diff_size,
+                    tests_passed=test_result.passed,
+                    repo_hash=repo_hash,
+                )
+                experience_store.update_strategy_score(
+                    selected_strategy.value, reward
+                )
+            except Exception as exc:
+                logger.warning("Learning record failed: %s", exc)
+
         # Phase 7: Update State
         save_state(state, runs_dir)
 
@@ -167,7 +251,12 @@ def run_loop(config: LoopConfig) -> LoopResult:
     return LoopResult(run_id, branch, config.max_iterations, StabilityReason.MAX_ITERATIONS, state)
 
 
-def _build_prompt(config: LoopConfig, state: RunState, registry: ToolRegistry) -> str:
+def _build_prompt(
+    config: LoopConfig,
+    state: RunState,
+    registry: ToolRegistry,
+    strategy: object = None,
+) -> str:
     try:
         git_diff = registry.call("git_diff", {"repo": str(config.repo)})
         diff_output = git_diff.get("stdout", "") or "(clean)"
@@ -179,6 +268,14 @@ def _build_prompt(config: LoopConfig, state: RunState, registry: ToolRegistry) -
     sections = [
         "You are a precise code engineer. Output ONLY a unified diff. No explanation.",
         "",
+    ]
+    # Learning: strategy scaffolding (modifies prompt only)
+    if strategy is not None and hasattr(strategy, "value"):
+        scaffolding = _STRATEGY_SCAFFOLDING.get(strategy.value)
+        if scaffolding:
+            sections.extend([f"STRATEGY: {scaffolding}", ""])
+
+    sections.extend([
         f"DIRECTIVE:\n{config.directive}",
         "",
         f"ITERATION: {state.iteration}",
@@ -186,7 +283,7 @@ def _build_prompt(config: LoopConfig, state: RunState, registry: ToolRegistry) -
         "CURRENT GIT DIFF (working tree):",
         diff_output,
         "",
-    ]
+    ])
 
     if last_test:
         sections += [

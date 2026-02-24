@@ -1,0 +1,9 @@
+# Hammer learning configuration.
+# When learning_enabled = false, Hammer behaves identically to pre-learning version.
+
+[learning]
+enabled = false
+epsilon = 0.1
+alpha = 0.1
+min_runs_before_bias = 5
+# seed = 42  # Optional: set for reproducible strategy selection

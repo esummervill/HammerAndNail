@@ -109,6 +109,19 @@ Any additional flags (e.g., `--run-id`) added after the helper are forwarded dir
 
 ---
 
+## Learning Extension (Optional)
+
+Hammer supports deterministic, reward-driven strategy learning. When enabled, it adapts prompt scaffolding across runs without modifying LLM weights or breaking branch safety.
+
+- **Config:** `configs/learning.toml` — set `[learning] enabled = true`
+- **Strategies:** `minimal_patch`, `rewrite`, `add_tests_first`, `refactor_only`, `static_analysis_first`
+- **Storage:** `.hammer/learning/` — `experience_log.jsonl`, `strategy_scores.json`, `audit.log`
+- **Toggle:** When disabled (default), Hammer behaves identically to the pre-learning version
+
+See `configs/learning.toml` for epsilon, alpha, and seed options.
+
+---
+
 ## Configuration
 
 All settings are overridable via environment variables:
@@ -196,6 +209,13 @@ hammer/
     branch_manager.py Git branch safety
     diff_manager.py   Unified diff extraction
     validator.py      git apply --check
+  learning/
+    strategies.py     Strategy enum (prompt scaffolding modes)
+    strategy_selector.py  Epsilon-greedy strategy selection
+    reward.py         Deterministic reward function
+    experience_store.py   Experience log + strategy scores
+    state_encoder.py  Lightweight repo state for selection
+    config.py        Learning config loader
   llm/
     base.py           LLMProvider ABC
     ollama_provider.py Ollama /api/generate
